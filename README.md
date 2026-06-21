@@ -1,127 +1,58 @@
 # Survey Q-Sort Estimator Recovery Study
 
-_co-authored with Claude Opus 4.8_
-
-A Monte Carlo parameter-recovery study testing **which estimators recover the true importance of items from survey Q-sort data — and whether their confidence intervals are honest.**
-
-> Effect Research · Quantitative UX Methodology
-> Status: **in development**
-
----
+A Monte Carlo study of which estimators recover true item importance from survey Q-sort data, and whether their confidence intervals hold up.
 
 ## Background
 
-The **survey Q-sort** (the four-pass "most / least" exercise popularized for prioritization) is a fast, software-light way to rank a list of features, needs, or messages. Its standard scoring — average the `5-4-3-2-1` band codes — quietly assumes the bands are **evenly spaced** and that **every item belongs** on the forced shape. Real importance is lumpy and the forced shape caps how far a leader can pull away, so the naive average **compresses the spacing**: it shrinks the leaders and inflates the tail. The ranking usually survives; the spacing does not.
+The survey Q-sort is a quick way to rank a list of features or needs by importance. Respondents work through four passes. They pick the most important item, then the next two, then the least important, then the next two down. Anything they never pick lands in the middle. Each item gets a code from 5 down to 1 based on where it ended up, and you average those codes across everyone to get a ranking.
 
-This repo runs a simulation study to quantify that — the **bias** of competing estimators and, crucially, the **confidence-interval coverage** (does a stated 95% interval actually contain the truth 95% of the time?).
+The standard scoring carries an assumption most people never stop to check. Averaging the 5-4-3-2-1 codes treats the bands as evenly spaced, so the distance from a 5 to a 4 matches the distance from a 2 to a 1. It also assumes every item belongs somewhere on the forced shape, including ones a respondent has no feeling about. Real importance rarely behaves that way. One item usually runs away with it, a few matter, and a long tail barely registers. The forced shape caps how far the leader can pull ahead, since it only gets one slot in the top band. Combine those and the average compresses the spacing. Leaders shrink, the tail inflates, and the order tends to come out right while the gaps between items get flattened.
 
-**What we are estimating:** population-level importance as **shares that sum to 1**, where *spacing* matters (how much more important one item is than another), not just rank order.
+I run a simulation here to measure that compression. I check the bias of each candidate estimator and, more to the point, whether its confidence intervals are honest, meaning a stated 95% interval really does contain the truth 95% of the time.
+
+The quantity I am after is population-level importance expressed as shares that sum to one, with spacing that carries weight. If one item comes out worth twice another, I want that to mean twice and not merely higher.
 
 ## The question
 
-> Across realistic conditions, which estimator recovers the true **spacing** accurately, and whose intervals are actually **honest** (cover the truth at their stated rate)?
+Across realistic conditions, which estimator recovers the true spacing accurately, and whose intervals cover the truth at the rate they advertise? That is what I am trying to settle.
 
-## Approach
+## How it works
 
-Invent a world where the true item worths are **known** → simulate respondents going through the four-pass exercise → fit each estimator → map every estimate to shares on a common scale → compare to the planted truth → repeat across a grid of conditions.
+I build a world where the true item worths are known, simulate respondents going through the four passes, fit each estimator, map every estimate onto the same share scale, and compare it against the planted truth. Then I repeat across a grid of conditions. The full framing is in [docs/methodology.md](docs/methodology.md), including the appendix on why I treat the four passes as separate trials rather than one ranking.
 
-See [`docs/methodology.md`](docs/methodology.md) for the full framing (context, the problem, the model table, and an appendix on the likelihood split that motivates modeling the four passes as separate trials).
+## Estimators
 
-## Estimators compared
-
-| Estimator | Role |
-|---|---|
-| Naive mean of `5-4-3-2-1` codes | Baseline (status quo) |
-| Naive mean, alternative coding vectors | Baseline stress-test (isolates the equal-spacing assumption) |
-| Plackett-Luce — single partial ranking | Proposed (convenient default) |
-| Plackett-Luce — four-trial factorization | Proposed (behaviorally faithful; "least" passes on the reversed scale) |
-| Respondent-level (cluster) bootstrap for the naive mean | Required check |
-| Dirichlet-multinomial / compositional | Optional comparator |
-| Hierarchical Bayes | Later / only if heterogeneity matters |
-
-Full descriptions and rationale in [`docs/methodology.md`](docs/methodology.md).
+I put seven estimators through the simulation. The naive bucket-code mean is the status quo I am scrutinizing, joined by a version that swaps in different coding vectors so I can test the even-spacing assumption directly. Plackett-Luce shows up in two forms, one that collapses the four passes into a single ranking and one that models them as separate trials with the least passes on a reversed scale. A respondent-level cluster bootstrap gives the naive mean its fairest shot at honest intervals. A Dirichlet-multinomial model sits between the two camps as a comparator, and I am holding a hierarchical Bayes layer in reserve for the case where the sample splits into segments. The methodology note describes each one and my reasoning.
 
 ## Evaluation
 
-- **Spacing accuracy** — bias and RMSE of estimated vs true shares, including the size of the gaps between items (not just whether the order is right).
-- **Interval honesty** — empirical vs nominal coverage at several levels (50/80/90/95), reported alongside interval width.
-- **Stratified** by item position (extremes vs the muddy middle), and repeated across list length, sample size, how lumpy the truth is, and respondent noise.
-
----
+Every run measures how close each estimate's shares sit to the truth, gaps included rather than order alone, and whether the intervals are honest, checked at several nominal levels and reported next to their width. I split all of it between the items at the extremes and the ones in the muddy middle, then repeat across list length, sample size, how lumpy the true importance is, and how noisy respondents are.
 
 ## Tech stack
 
-R. Key packages by role:
+R. The packages and what each one does:
 
 | Package | Role |
 |---|---|
-| [`SimDesign`](https://cran.r-project.org/package=SimDesign) | Monte Carlo harness (`generate`/`analyse`/`summarise`); built-in `ECR()` coverage, `bias()`, `RMSE()`, `RE()`; auto re-sim of non-convergent fits; parallel + HPC |
-| [`PlackettLuce`](https://cran.r-project.org/package=PlackettLuce) | Single-ranking PL — ties of any order, partial rankings, quasi-SEs, `pltree()` for segmentation, optional MVN prior |
-| [`survival`](https://cran.r-project.org/package=survival) (`clogit`) | Exploded / stratified conditional logit — engine for the four-trial best-worst model |
-| [`support.BWS`](https://cran.r-project.org/package=support.BWS) | Best-worst data encoding (`bws.dataset` → maxdiff / marginal / sequential forms) and the clogit pattern |
-| [`apollo`](https://cran.r-project.org/package=apollo) / [`mlogit`](https://cran.r-project.org/package=mlogit) / [`logitr`](https://cran.r-project.org/package=logitr) | Alternative choice-model engines (explicit best+worst likelihood; random coefficients later) |
-| [`rsample`](https://cran.r-project.org/package=rsample) (`group_bootstraps`) / `boot` | Respondent-level (cluster) bootstrap |
-| [`DirichletReg`](https://cran.r-project.org/package=DirichletReg) / `brms` | Compositional comparator |
-| [`bwsTools`](https://cran.r-project.org/package=bwsTools) | Quick BWS scoring sanity checks (`ae_mnl`, empirical Bayes, etc.) |
-| *(optional, later)* `apollo` / `RSGHB` / Stan + [`SBC`](https://cran.r-project.org/package=SBC) | Hierarchical Bayes + Bayesian calibration |
+| [`SimDesign`](https://cran.r-project.org/package=SimDesign) | Monte Carlo harness with generate, analyse and summarise steps. Built-in `ECR()` coverage, `bias()`, `RMSE()`, `RE()`. Re-runs non-convergent fits, parallelizes, handles HPC jobs. |
+| [`PlackettLuce`](https://cran.r-project.org/package=PlackettLuce) | Single-ranking Plackett-Luce. Ties of any order, partial rankings, quasi standard errors, `pltree()` for segmentation, optional multivariate normal prior. |
+| [`survival`](https://cran.r-project.org/package=survival) (`clogit`) | Exploded conditional logit, the engine for the four-trial best-worst model. |
+| [`support.BWS`](https://cran.r-project.org/package=support.BWS) | Best-worst data encoding through `bws.dataset` (maxdiff, marginal and sequential forms) and the clogit pattern. |
+| [`apollo`](https://cran.r-project.org/package=apollo) / [`mlogit`](https://cran.r-project.org/package=mlogit) / [`logitr`](https://cran.r-project.org/package=logitr) | Alternative choice-model engines for an explicit best-and-worst likelihood, with random coefficients available later. |
+| [`rsample`](https://cran.r-project.org/package=rsample) (`group_bootstraps`) / `boot` | Respondent-level cluster bootstrap. |
+| [`DirichletReg`](https://cran.r-project.org/package=DirichletReg) / `brms` | Compositional comparator. |
+| [`bwsTools`](https://cran.r-project.org/package=bwsTools) | Quick best-worst scoring checks like `ae_mnl` and empirical Bayes. |
+| `apollo` / `RSGHB` / Stan + [`SBC`](https://cran.r-project.org/package=SBC) | Hierarchical Bayes and Bayesian calibration, if needed later. |
 
-## Off-the-shelf vs custom
+## What I am writing versus what I am reusing
 
-The estimation engines and the entire Monte-Carlo / coverage machinery already exist and are mature. **The custom layer is small and Q-sort-specific:**
+Most of this is assembly. The estimation engines and the Monte Carlo and coverage apparatus already exist and are stable. What I have to write is a small layer specific to the Q-sort.
 
-1. **The data-generating process** (`R/dgp.R`) — no package simulates the four-pass full-list response. Given true worths and a choice-noise scale: draw most via softmax over `v`, remove; draw the top-2 set; switch to the reversed scale and draw least via softmax over `1/v` on survivors; draw the bottom-2 set; the rest are the tied middle.
-2. **Two encoders** —
-   - `R/encode_ranking.R`: map each respondent's four passes to a `PlackettLuce` rankings object with the tie blocks (top-1, tied-2, tied-4, tied-2, bottom-1).
-   - `R/encode_trials.R`: explode the four passes into stacked `clogit` tasks, negating the item dummies on the two "least" tasks so a single coefficient vector governs both directions (the standard best-worst sign convention).
-3. **Common-scale glue** (`R/evaluate.R`) — normalize every estimator's output to shares and compute coverage separately for extreme vs middle items (lives in SimDesign's `Analyse`/`Summarise`).
+The data-generating process in `R/dgp.R` comes first, since no package simulates the four-pass full-list response. Given true worths and a noise scale, it draws the most important item by softmax over the worths, removes it, draws the next two, switches to the reversed scale to draw the least important among the survivors, takes the next two down, and leaves the rest as the tied middle.
 
-Everything else is wiring these together.
+Two encoders come next. `R/encode_ranking.R` maps each respondent's four passes into a PlackettLuce rankings object with the tie blocks. `R/encode_trials.R` explodes the same passes into stacked clogit tasks and flips the sign of the item dummies on the two least passes, so one coefficient vector governs both directions. That sign flip is the standard best-worst convention.
 
-## Proposed repository structure
-
-```
-qsort-recovery/
-├── README.md
-├── docs/
-│   └── methodology.md          # context, problem, model table, appendix (the likelihood split)
-├── figures/
-│   ├── coverage_calibration.png / .svg
-│   └── likelihood_split.png / .svg
-├── R/
-│   ├── dgp.R                   # four-pass response simulator (CUSTOM)
-│   ├── encode_ranking.R        # PlackettLuce tied-ranking encoder (CUSTOM)
-│   ├── encode_trials.R         # reversed-scale clogit explosion (CUSTOM)
-│   ├── estimators.R            # naive mean (+ codings), PL single, PL/clogit trials, Dirichlet
-│   ├── evaluate.R              # share mapping + position-stratified coverage
-│   └── simulation.R            # SimDesign Generate / Analyse / Summarise + design grid
-├── analysis/
-│   └── run_study.R             # entry point
-├── renv.lock
-└── LICENSE
-```
-
-## Getting started
-
-```r
-# R >= 4.3 recommended
-install.packages("renv")
-renv::init()        # then add the packages above to the lockfile
-renv::restore()     # reproducible install
-
-# run the study
-source("analysis/run_study.R")
-```
-
-## Roadmap
-
-- [ ] `dgp.R` — four-pass response simulator + choice-noise parameter
-- [ ] `encode_ranking.R` / `encode_trials.R` — the two encoders
-- [ ] `estimators.R` — all estimators returning normalized shares + intervals
-- [ ] `evaluate.R` — share mapping, position-stratified coverage
-- [ ] `simulation.R` — SimDesign harness wired to `ECR`/`bias`/`RMSE`
-- [ ] design grid (K, n, worth separation/shape, noise, homogeneous vs mixture)
-- [ ] figures + write-up
-- [ ] *(optional)* hierarchical-Bayes layer + SBC calibration
+The glue in `R/evaluate.R` finishes it off, putting every estimator's output onto the same share scale and computing coverage separately for the extreme and middle items. That work sits inside SimDesign's analyse and summarise steps. The rest is wiring.
 
 ## Key references
 
@@ -136,4 +67,4 @@ source("analysis/run_study.R")
 
 ## License
 
-TBD — © Honeycrisp Research.
+TBD. Copyright Honeycrisp Research.
