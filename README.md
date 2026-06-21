@@ -30,29 +30,71 @@ Every run measures how close each estimate's shares sit to the truth, gaps inclu
 
 ## Tech stack
 
-R. The packages and what each one does:
+R, leaning on the tidyverse. The whole study is small enough to read top to
+bottom, so the Monte Carlo is a plain parallel loop rather than a simulation
+framework. The packages that actually do the work:
 
 | Package | Role |
 |---|---|
-| [`SimDesign`](https://cran.r-project.org/package=SimDesign) | Monte Carlo harness with generate, analyse and summarise steps. Built-in `ECR()` coverage, `bias()`, `RMSE()`, `RE()`. Re-runs non-convergent fits, parallelizes, handles HPC jobs. |
-| [`PlackettLuce`](https://cran.r-project.org/package=PlackettLuce) | Single-ranking Plackett-Luce. Ties of any order, partial rankings, quasi standard errors, `pltree()` for segmentation, optional multivariate normal prior. |
+| `dplyr` / `tidyr` / `purrr` / `tibble` | The tidy data layer: the data-generating process, encoders, and scoring are all tidy-table transforms. |
 | [`survival`](https://cran.r-project.org/package=survival) (`clogit`) | Exploded conditional logit, the engine for the four-trial best-worst model. |
-| [`support.BWS`](https://cran.r-project.org/package=support.BWS) | Best-worst data encoding through `bws.dataset` (maxdiff, marginal and sequential forms) and the clogit pattern. |
-| [`apollo`](https://cran.r-project.org/package=apollo) / [`mlogit`](https://cran.r-project.org/package=mlogit) / [`logitr`](https://cran.r-project.org/package=logitr) | Alternative choice-model engines for an explicit best-and-worst likelihood, with random coefficients available later. |
-| [`rsample`](https://cran.r-project.org/package=rsample) (`group_bootstraps`) / `boot` | Respondent-level cluster bootstrap. |
-| [`DirichletReg`](https://cran.r-project.org/package=DirichletReg) / `brms` | Compositional comparator. |
-| [`bwsTools`](https://cran.r-project.org/package=bwsTools) | Quick best-worst scoring checks like `ae_mnl` and empirical Bayes. |
-| `apollo` / `RSGHB` / Stan + [`SBC`](https://cran.r-project.org/package=SBC) | Hierarchical Bayes and Bayesian calibration, if needed later. |
+| [`PlackettLuce`](https://cran.r-project.org/package=PlackettLuce) | Single-ranking Plackett-Luce on the tied partial ranking. Tractable only for short lists (the middle band is a high-order tie). |
+| [`DirichletReg`](https://cran.r-project.org/package=DirichletReg) | Compositional comparator; the fitted mean shares are a softmax of its log-alpha intercepts, so the interval comes from one fit by the delta method. |
+| `parallel` (`mclapply`) | Runs the (condition × replication) jobs across cores. |
+| `ggplot2` / `scales` / `knitr` / `rmarkdown` | Figures and the rendered report. |
 
-## What I am writing versus what I am reusing
+The respondent-level cluster bootstrap (for the naive mean) is a few lines of
+base R — resample the rows of the per-respondent share matrix — so it needs no
+extra package. A hierarchical Bayes layer (Stan) and explicit best-worst choice
+engines (`apollo`, `mlogit`, `support.BWS`, `bwsTools`) remain options for later
+if heterogeneity or a richer likelihood turns out to matter.
 
-Most of this is assembly. The estimation engines and the Monte Carlo and coverage apparatus already exist and are stable. What I have to write is a small layer specific to the Q-sort.
+## How the code is laid out
 
-The data-generating process in `R/dgp.R` comes first, since no package simulates the four-pass full-list response. Given true worths and a noise scale, it draws the most important item by softmax over the worths, removes it, draws the next two, switches to the reversed scale to draw the least important among the survivors, takes the next two down, and leaves the rest as the tied middle.
+The Q-sort-specific layer is deliberately small and readable. Three files:
 
-Two encoders come next. `R/encode_ranking.R` maps each respondent's four passes into a PlackettLuce rankings object with the tie blocks. `R/encode_trials.R` explodes the same passes into stacked clogit tasks and flips the sign of the item dummies on the two least passes, so one coefficient vector governs both directions. That sign flip is the standard best-worst convention.
+- **`R/qsort.R`** — the whole library in one place, readable top to bottom:
+  `make_truth()` plants a known importance profile; `simulate_qsort()` walks
+  respondents through the four passes (draw the most important by softmax over
+  the worths, remove it, draw the next two, switch to the reversed scale for the
+  least and next-least, leave the rest as the tied middle); the `fit_*()`
+  estimators each return the same `item | estimate | se` on the share scale; and
+  `score_estimates()` compares any estimate against the planted truth. Two
+  encoders live inside their estimators — `fit_pl_ranking()` builds the tied
+  partial ranking, and `fit_pl_trials()` stacks the four passes as clogit tasks
+  with the sign of the item dummies flipped on the two "least" passes (the
+  standard best-worst convention).
+- **`run_study.R`** — the Monte Carlo as a transparent script: a design grid, a
+  per-replication function, and an `mclapply` over every (condition ×
+  replication) job. It writes the scored draws and two summary tables to
+  `results/`.
+- **`report.Rmd`** — reads those results and renders [`docs/report.md`](docs/report.md)
+  with the recovery and coverage figures.
 
-The glue in `R/evaluate.R` finishes it off, putting every estimator's output onto the same share scale and computing coverage separately for the extreme and middle items. That work sits inside SimDesign's analyse and summarise steps. The rest is wiring.
+A uniform contract makes this tidy: because every estimator returns a point
+share and a standard error, intervals are built downstream as `estimate ± z·se`,
+and one scoring step checks coverage at any nominal level.
+
+## Reproducing the study
+
+```sh
+Rscript tests/smoke_test.R     # fast end-to-end check on one sample
+Rscript run_study.R            # the full Monte Carlo -> results/
+Rscript -e 'rmarkdown::render("report.Rmd")'   # -> docs/report.md
+```
+
+`run_study.R` reads a few knobs from the environment, so a quick look is
+`REPS=5 Rscript run_study.R`. It needs `PlackettLuce`, `DirichletReg`, the
+tidyverse core, `survival`, and (for the report) `ggplot2` / `rmarkdown`.
+
+## Results
+
+The rendered findings live in [`docs/report.md`](docs/report.md). In short:
+the naive mean **compresses** the spacing (it recovers the leader at a fraction
+of its true share and its 95% intervals badly under-cover the top and bottom
+items), the single-ranking Plackett-Luce **over-corrects** and does not scale,
+and the **four-trial Plackett-Luce** recovers the spacing with the lowest error
+and the most honest intervals while fitting quickly at every list length.
 
 ## Key references
 
