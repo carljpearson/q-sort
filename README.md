@@ -4,8 +4,8 @@ _co-authored with Claude Opus 4.8_
 
 A Monte Carlo parameter-recovery study testing **which estimators recover the true importance of items from survey Q-sort data — and whether their confidence intervals are honest.**
 
-> Honeycrisp Research · Quantitative UX Methodology
-> Status: **in development** (scaffolding for implementation in R)
+> Effect Research · Quantitative UX Methodology
+> Status: **in development**
 
 ---
 
