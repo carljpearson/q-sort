@@ -1,0 +1,11 @@
+# Raw per-draw scored output is large (tens of MB) and redundant with the
+# study_results.rds the report reads. Regenerate it with run_study.R.
+results/scored_draws.csv
+
+# R / knitr cruft
+.Rhistory
+.RData
+.Rproj.user/
+report_files/
+report_cache/
+*_cache/
