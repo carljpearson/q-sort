@@ -41,7 +41,7 @@ framework. The packages that actually do the work:
 | [`PlackettLuce`](https://cran.r-project.org/package=PlackettLuce) | Single-ranking Plackett-Luce on the tied partial ranking. Tractable only for short lists (the middle band is a high-order tie). |
 | [`DirichletReg`](https://cran.r-project.org/package=DirichletReg) | Compositional comparator; the fitted mean shares are a softmax of its log-alpha intercepts, so the interval comes from one fit by the delta method. |
 | `parallel` (`mclapply`) | Runs the (condition × replication) jobs across cores. |
-| `ggplot2` / `scales` / `knitr` / `rmarkdown` | Figures and the rendered report. |
+| `ggplot2` / `scales` | The plots and summaries the script prints and saves as it runs. |
 
 The respondent-level cluster bootstrap (for the naive mean) is a few lines of
 base R — resample the rows of the per-respondent share matrix — so it needs no
@@ -51,50 +51,46 @@ if heterogeneity or a richer likelihood turns out to matter.
 
 ## How the code is laid out
 
-The Q-sort-specific layer is deliberately small and readable. Three files:
+The whole study is a single script you read top to bottom:
 
-- **`R/qsort.R`** — the whole library in one place, readable top to bottom:
-  `make_truth()` plants a known importance profile; `simulate_qsort()` walks
-  respondents through the four passes (draw the most important by softmax over
-  the worths, remove it, draw the next two, switch to the reversed scale for the
-  least and next-least, leave the rest as the tied middle); the `fit_*()`
-  estimators each return the same `item | estimate | se` on the share scale; and
-  `score_estimates()` compares any estimate against the planted truth. Two
-  encoders live inside their estimators — `fit_pl_ranking()` builds the tied
-  partial ranking, and `fit_pl_trials()` stacks the four passes as clogit tasks
-  with the sign of the item dummies flipped on the two "least" passes (the
-  standard best-worst convention).
-- **`run_study.R`** — the Monte Carlo as a transparent script: a design grid, a
-  per-replication function, and an `mclapply` over every (condition ×
-  replication) job. It writes the scored draws and two summary tables to
-  `results/`.
-- **`report.Rmd`** — reads those results and renders [`docs/report.md`](docs/report.md)
-  with the recovery and coverage figures.
+**[`analysis.R`](analysis.R)** plants a known truth, walks respondents through
+the four passes, defines each estimator right before it is used, and runs the
+Monte Carlo over a grid of conditions — printing a short summary and saving a
+plot at every step so the analysis unfolds as you read. In order, it:
 
-A uniform contract makes this tidy: because every estimator returns a point
-share and a standard error, intervals are built downstream as `estimate ± z·se`,
-and one scoring step checks coverage at any nominal level.
+1. plants a truth and simulates one Q-sort sample, then plots where each item
+   landed (`docs/figures/results/01-dgp-bands.png`);
+2. defines the six estimators — `fit_naive` / `fit_naive_steep` /
+   `fit_naive_boot`, `fit_dirichlet`, `fit_pl_ranking` (the tied partial
+   ranking) and `fit_pl_trials` (the four passes as clogit best/worst tasks) —
+   fits them to that one sample, and plots estimates against the truth
+   (`02-one-sample-estimates.png`);
+3. runs the Monte Carlo as a flat `mclapply` over every (condition × replication)
+   sample, prints the recovery and coverage tables, and saves the result figures.
+
+A uniform contract keeps it tidy: every estimator returns `item | estimate | se`
+on the share scale, so intervals are built as `estimate ± z·se` and one scoring
+step checks coverage at any nominal level.
 
 ## Reproducing the study
 
 ```sh
-Rscript tests/smoke_test.R     # fast end-to-end check on one sample
-Rscript run_study.R            # the full Monte Carlo -> results/
-Rscript -e 'rmarkdown::render("report.Rmd")'   # -> docs/report.md
+Rscript analysis.R          # the whole thing: prints summaries, saves plots + results
+REPS=10 Rscript analysis.R  # a quick look (fewer replications)
 ```
 
-`run_study.R` reads a few knobs from the environment, so a quick look is
-`REPS=5 Rscript run_study.R`. It needs `PlackettLuce`, `DirichletReg`, the
-tidyverse core, `survival`, and (for the report) `ggplot2` / `rmarkdown`.
+It needs `PlackettLuce`, `DirichletReg`, the tidyverse core, `survival`, and
+`ggplot2`. Data lands in `results/`, figures in `docs/figures/results/`.
 
 ## Results
 
-The rendered findings live in [`docs/report.md`](docs/report.md). In short:
-the naive mean **compresses** the spacing (it recovers the leader at a fraction
-of its true share and its 95% intervals badly under-cover the top and bottom
-items), the single-ranking Plackett-Luce **over-corrects** and does not scale,
-and the **four-trial Plackett-Luce** recovers the spacing with the lowest error
-and the most honest intervals while fitting quickly at every list length.
+The write-up lives in [`docs/results_draft.md`](docs/results_draft.md), with the
+figures `analysis.R` produces. In short: the naive mean **compresses** the
+spacing (it recovers the leader at a fraction of its true share and its 95%
+intervals badly under-cover the top and bottom items), the single-ranking
+Plackett-Luce **over-corrects** and does not scale, and the **four-trial
+Plackett-Luce** recovers the spacing with the lowest error and the most honest
+intervals while fitting quickly at every list length.
 
 ## Key references
 

@@ -1,6 +1,6 @@
 # Q-Sort Estimator Recovery — Results Draft
 
-> **Status: draft.** Numbers and figures are from a real run of `run_study.R`
+> **Status: draft.** Numbers and figures are from a real run of `analysis.R`
 > (16 conditions × 150 replications = 2,400 simulated samples). The narrative is
 > a first pass meant to be edited. Open questions are flagged at the end.
 
@@ -53,7 +53,7 @@ On the **extreme** items (the top and bottom — the ones decisions hinge on):
 | Naive mean | −0.034 | 0.111 |
 | Dirichlet | −0.034 | 0.111 |
 | Naive steep | −0.030 | 0.099 |
-| PL single ranking | **+0.020** | 0.109 |
+| PL single ranking | **+0.020** | 0.108 |
 | **PL four trials** | **−0.010** | **0.051** |
 
 The naive family pulls the extremes *toward* the middle (negative bias); the
@@ -157,5 +157,5 @@ aside, the four-trial model is the only principled one that runs at scale.
 
 ---
 
-*Reproduce: `Rscript run_study.R` then `Rscript -e 'rmarkdown::render("report.Rmd")'`.
-Full per-condition figures and tables are in [`../report.md`](../report.md).*
+*Reproduce: `Rscript analysis.R` — it prints the summaries, saves these figures
+to `figures/results/`, and writes the data to `../results/`.*
